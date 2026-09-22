@@ -1,0 +1,56 @@
+const email = $input.first().json;
+
+function forceString(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (Array.isArray(val)) return val.map(forceString).join(' ');
+  if (typeof val === 'object') {
+    if (val.value !== undefined) return forceString(val.value);
+    if (val.text !== undefined) return forceString(val.text);
+    if (val.address !== undefined) return forceString(val.address);
+    try { return JSON.stringify(val); } catch (e) { return ''; }
+  }
+  return '';
+}
+
+function getHeader(name) {
+  const headers = email.payload?.headers || email.headers;
+  if (Array.isArray(headers)) {
+    const found = headers.find(h => (h.name || '').toLowerCase() === name.toLowerCase());
+    if (found) return found.value;
+  }
+  return null;
+}
+
+const fromRaw = getHeader('from') ?? email.From ?? email.from ?? '';
+const fromHeader = String(forceString(fromRaw) || '');
+
+const emailMatch = fromHeader.match(/<(.+?)>/);
+const senderEmail = emailMatch ? emailMatch[1].trim() : fromHeader.trim();
+let senderName = fromHeader.replace(/<.+?>/, '').replace(/"/g, '').trim() || senderEmail;
+
+// Split name into first/last for HubSpot
+const nameParts = senderName.split(' ').filter(Boolean);
+const firstName = nameParts[0] || '';
+const lastName = nameParts.slice(1).join(' ') || '';
+
+const subject = String(forceString(getHeader('subject') || email.Subject || email.subject || '(No Subject)') || '(No Subject)');
+
+let bodyText = forceString(email.text || email.textPlain || '');
+if (!bodyText && email.html) {
+  bodyText = forceString(email.html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+if (!bodyText) bodyText = forceString(email.snippet || '');
+
+return [{
+  json: {
+    senderName,
+    firstName,
+    lastName,
+    senderEmail,
+    subject,
+    body: bodyText.trim(),
+    receivedAt: new Date().toISOString()
+  }
+}];
